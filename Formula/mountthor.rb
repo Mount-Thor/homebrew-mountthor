@@ -1,20 +1,20 @@
 class Mountthor < Formula
   desc "Mount Thor customer CLI for registration, API keys, sessions, bare-metal leases, and VM workflows"
   homepage "https://mountthor.com"
-  version "0.1.16"
+  version "0.1.17"
   if OS.mac?
     if Hardware::CPU.arm?
-      url "https://github.com/Mount-Thor/mount-thor/releases/download/mountthor-v0.1.16/mountthor-aarch64-apple-darwin.tar.xz"
-      sha256 "7e66ee62b963286659a98dd4030da76a032c5aa1415a0277fda14358a1bef29b"
+      url "https://github.com/Mount-Thor/mount-thor/releases/download/mountthor-v0.1.17/mountthor-aarch64-apple-darwin.tar.xz"
+      sha256 "f71018c5f409c282689d35171761e37e97029dc7375cbbcc982d8a6b8a6a61a3"
     end
     if Hardware::CPU.intel?
-      url "https://github.com/Mount-Thor/mount-thor/releases/download/mountthor-v0.1.16/mountthor-x86_64-apple-darwin.tar.xz"
-      sha256 "7f1dcec04674fa36030ab9e0e28e5133937c79feb6ab19357e08f0a625ac59a3"
+      url "https://github.com/Mount-Thor/mount-thor/releases/download/mountthor-v0.1.17/mountthor-x86_64-apple-darwin.tar.xz"
+      sha256 "0347041ac09690d0e60bd95a79f81ce9ef7d0fdc0c9b6fd8dde7171ca2b1e242"
     end
   end
   if OS.linux? && Hardware::CPU.intel?
-    url "https://github.com/Mount-Thor/mount-thor/releases/download/mountthor-v0.1.16/mountthor-x86_64-unknown-linux-gnu.tar.xz"
-    sha256 "1bdc6c64a28f509e78392b93cdfa8f1d6ad2a0b4d6227821ba90df2372b50ddb"
+    url "https://github.com/Mount-Thor/mount-thor/releases/download/mountthor-v0.1.17/mountthor-x86_64-unknown-linux-gnu.tar.xz"
+    sha256 "2f0567ac4d68cc385ce551cad0fb1ab11062c4357df94bbc210e55ff8629efcb"
   end
   license "Apache-2.0"
 
