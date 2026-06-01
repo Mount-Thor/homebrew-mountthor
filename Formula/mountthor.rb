@@ -1,29 +1,30 @@
 class Mountthor < Formula
   desc "Mount Thor customer CLI for registration, API keys, sessions, bare-metal leases, and VM workflows"
   homepage "https://mountthor.com"
-  version "0.3.9"
+  version "0.3.10"
   if OS.mac?
     if Hardware::CPU.arm?
-      url "https://get.mountthor.com/mountthor/v0.3.9/mountthor-aarch64-apple-darwin.tar.xz"
-      sha256 "36c0955d04d8ce6222439bfade0dc8f0812b40cafc2a37236d81d7cd10203689"
+      url "https://get.mountthor.com/mountthor/v0.3.10/mountthor-aarch64-apple-darwin.tar.xz"
+      sha256 "c6f58ce7f5ade139582be084e5722f17013bb70b53a5d34712d9455c42c7cf0f"
     end
     if Hardware::CPU.intel?
-      url "https://get.mountthor.com/mountthor/v0.3.9/mountthor-x86_64-apple-darwin.tar.xz"
-      sha256 "b4f8ab755e517c98c00b4eeb46b2aa110cc3807b8b6db0569fe78a7c5a7ce93d"
+      url "https://get.mountthor.com/mountthor/v0.3.10/mountthor-x86_64-apple-darwin.tar.xz"
+      sha256 "278ea7dbc2cd123893b11332334ef29419596135c64837f0e55f8fb560f0ca51"
     end
   end
-  if OS.linux? && Hardware::CPU.intel?
-    url "https://get.mountthor.com/mountthor/v0.3.9/mountthor-x86_64-unknown-linux-gnu.tar.xz"
-    sha256 "7097dcc37a7c695424ab74746f2e21c86799f18137ec3f95378260ef8780d466"
+  if OS.linux?
+    if Hardware::CPU.intel?
+      url "https://get.mountthor.com/mountthor/v0.3.10/mountthor-x86_64-unknown-linux-gnu.tar.xz"
+      sha256 "13ba6249b32b52d1bf750c2f829d58a15edb3f5716b56bff145127f6bf4f8846"
+    end
   end
   license "Apache-2.0"
 
   BINARY_ALIASES = {
-    "aarch64-apple-darwin":     {},
-    "x86_64-apple-darwin":      {},
-    "x86_64-pc-windows-gnu":    {},
-    "x86_64-unknown-linux-gnu": {},
-  }.freeze
+    "aarch64-apple-darwin": {},
+    "x86_64-apple-darwin": {},
+    "x86_64-unknown-linux-gnu": {}
+  }
 
   def target_triple
     cpu = Hardware::CPU.arm? ? "aarch64" : "x86_64"
@@ -41,9 +42,15 @@ class Mountthor < Formula
   end
 
   def install
-    bin.install "mountthor" if OS.mac? && Hardware::CPU.arm?
-    bin.install "mountthor" if OS.mac? && Hardware::CPU.intel?
-    bin.install "mountthor" if OS.linux? && Hardware::CPU.intel?
+    if OS.mac? && Hardware::CPU.arm?
+      bin.install "mountthor"
+    end
+    if OS.mac? && Hardware::CPU.intel?
+      bin.install "mountthor"
+    end
+    if OS.linux? && Hardware::CPU.intel?
+      bin.install "mountthor"
+    end
 
     install_binary_aliases!
 
