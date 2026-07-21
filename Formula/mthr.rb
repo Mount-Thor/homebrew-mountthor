@@ -1,30 +1,28 @@
 class Mthr < Formula
   desc "Mount Thor customer CLI for registration, API keys, sessions, bare-metal machines, and VM workflows"
   homepage "https://mountthor.com"
-  version "0.3.29"
+  version "0.3.30"
   if OS.mac?
     if Hardware::CPU.arm?
-      url "https://get.mountthor.com/mthr/v0.3.29/mthr-aarch64-apple-darwin.tar.xz"
-      sha256 "58de7ccc26149171dd78b2649a460e13bb9c2e082ee89f848fc837edc10cb442"
+      url "https://get.mountthor.com/mthr/v0.3.30/mthr-aarch64-apple-darwin.tar.xz"
+      sha256 "c7411974208aaad17554ac1d9a4b508ba7ca812c866b78b46b42efb408576e24"
     end
     if Hardware::CPU.intel?
-      url "https://get.mountthor.com/mthr/v0.3.29/mthr-x86_64-apple-darwin.tar.xz"
-      sha256 "8ddcaf6afa204c0d63fb9181adda32d98b74b1a3e7e4422cc233b29579503766"
+      url "https://get.mountthor.com/mthr/v0.3.30/mthr-x86_64-apple-darwin.tar.xz"
+      sha256 "6af93faa1e1f3fdab4b48aa341375a59a3684a4982c3c1eb78b37907ecb865a1"
     end
   end
-  if OS.linux?
-    if Hardware::CPU.intel?
-      url "https://get.mountthor.com/mthr/v0.3.29/mthr-x86_64-unknown-linux-gnu.tar.xz"
-      sha256 "ce3512c966b8136c89ac942f02e8b2e6e5184b65899ea0bef2d32710b5c47987"
-    end
+  if OS.linux? && Hardware::CPU.intel?
+    url "https://get.mountthor.com/mthr/v0.3.30/mthr-x86_64-unknown-linux-gnu.tar.xz"
+    sha256 "dc3882fd99f177e6d1f1fc039ed5111a4e09e8d72e6ec927aebc729c1cced29f"
   end
   license "Apache-2.0"
 
   BINARY_ALIASES = {
-    "aarch64-apple-darwin": {},
-    "x86_64-apple-darwin": {},
-    "x86_64-unknown-linux-gnu": {}
-  }
+    "aarch64-apple-darwin":     {},
+    "x86_64-apple-darwin":      {},
+    "x86_64-unknown-linux-gnu": {},
+  }.freeze
 
   def target_triple
     cpu = Hardware::CPU.arm? ? "aarch64" : "x86_64"
@@ -42,15 +40,9 @@ class Mthr < Formula
   end
 
   def install
-    if OS.mac? && Hardware::CPU.arm?
-      bin.install "mthr"
-    end
-    if OS.mac? && Hardware::CPU.intel?
-      bin.install "mthr"
-    end
-    if OS.linux? && Hardware::CPU.intel?
-      bin.install "mthr"
-    end
+    bin.install "mthr" if OS.mac? && Hardware::CPU.arm?
+    bin.install "mthr" if OS.mac? && Hardware::CPU.intel?
+    bin.install "mthr" if OS.linux? && Hardware::CPU.intel?
 
     install_binary_aliases!
 
