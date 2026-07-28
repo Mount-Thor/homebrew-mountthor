@@ -1,20 +1,20 @@
 class Mthr < Formula
   desc "Mount Thor customer CLI for registration, API keys, sessions, bare-metal machines, and VM workflows"
   homepage "https://mountthor.com"
-  version "0.3.39"
+  version "0.3.40"
   if OS.mac?
     if Hardware::CPU.arm?
-      url "https://get.mountthor.com/mthr/v0.3.39/mthr-aarch64-apple-darwin.tar.xz"
-      sha256 "efffd189ce20f32821641bf950b3d1a4658ee653183b8074fc21b29fcda73b58"
+      url "https://get.mountthor.com/mthr/v0.3.40/mthr-aarch64-apple-darwin.tar.xz"
+      sha256 "e255a2260ce4beadbf4b5bd736f63fa79a7fcfd7ce1cd79f7e22b3bae35251f0"
     end
     if Hardware::CPU.intel?
-      url "https://get.mountthor.com/mthr/v0.3.39/mthr-x86_64-apple-darwin.tar.xz"
-      sha256 "922f7e644889e97282ba0343d4cd39b57aff91903ab7d9e42004126aa6f5374d"
+      url "https://get.mountthor.com/mthr/v0.3.40/mthr-x86_64-apple-darwin.tar.xz"
+      sha256 "109ea71b2c47c7938e7691fd0079e6242ccf575c2210789cab9dc206a74bb463"
     end
   end
   if OS.linux? && Hardware::CPU.intel?
-    url "https://get.mountthor.com/mthr/v0.3.39/mthr-x86_64-unknown-linux-gnu.tar.xz"
-    sha256 "eff82a437a081249bfd4433eaec44ff2a6400911d81f8f48bf4c2702c551df54"
+    url "https://get.mountthor.com/mthr/v0.3.40/mthr-x86_64-unknown-linux-gnu.tar.xz"
+    sha256 "009268d0af6b9efb7e3085981cbd7276f7fc58c6ae6552971cf081ab60c1136c"
   end
   license "Apache-2.0"
 
@@ -39,12 +39,68 @@ class Mthr < Formula
     end
   end
 
+  def install_native_desktop_handler!
+    # Mount Thor native bare-metal desktop URL handler.
+    handler_source = buildpath/"mthr-desktop-handler.applescript"
+    handler_source.write <<~APPLESCRIPT
+      on open location the_url
+        do shell script "nohup " & quoted form of "#{opt_bin}/mthr" & " desktop-handoff " & quoted form of the_url & " </dev/null >/dev/null 2>&1 &"
+      end open location
+    APPLESCRIPT
+
+    handler_app = libexec/"Mount Thor Desktop.app"
+    system "/usr/bin/osacompile", "-o", handler_app, handler_source
+    (handler_app/"Contents/Info.plist").write <<~PLIST
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+      <plist version="1.0">
+      <dict>
+        <key>CFBundleDevelopmentRegion</key>
+        <string>en</string>
+        <key>CFBundleExecutable</key>
+        <string>applet</string>
+        <key>CFBundleIdentifier</key>
+        <string>com.mountthor.desktop-handoff</string>
+        <key>CFBundleInfoDictionaryVersion</key>
+        <string>6.0</string>
+        <key>CFBundleName</key>
+        <string>Mount Thor Desktop</string>
+        <key>CFBundlePackageType</key>
+        <string>APPL</string>
+        <key>CFBundleSignature</key>
+        <string>aplt</string>
+        <key>CFBundleURLTypes</key>
+        <array>
+          <dict>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>CFBundleURLName</key>
+            <string>com.mountthor.desktop-handoff</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+              <string>mthr</string>
+            </array>
+          </dict>
+        </array>
+        <key>LSMinimumSystemVersion</key>
+        <string>13.0</string>
+        <key>LSUIElement</key>
+        <true/>
+        <key>NSHighResolutionCapable</key>
+        <true/>
+      </dict>
+      </plist>
+    PLIST
+    system "/usr/bin/codesign", "--force", "--deep", "--sign", "-", handler_app
+  end
+
   def install
     bin.install "mthr" if OS.mac? && Hardware::CPU.arm?
     bin.install "mthr" if OS.mac? && Hardware::CPU.intel?
     bin.install "mthr" if OS.linux? && Hardware::CPU.intel?
 
     install_binary_aliases!
+    install_native_desktop_handler! if OS.mac?
 
     # Homebrew will automatically install these, so we don't need to do that
     doc_files = Dir["README.*", "readme.*", "LICENSE", "LICENSE.*", "CHANGELOG.*"]
@@ -53,5 +109,12 @@ class Mthr < Formula
     # Install any leftover files in pkgshare; these are probably config or
     # sample files.
     pkgshare.install(*leftover_contents) unless leftover_contents.empty?
+  end
+
+  def post_install
+    return unless OS.mac?
+
+    system "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
+           "-f", opt_libexec/"Mount Thor Desktop.app"
   end
 end
