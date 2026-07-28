@@ -1,20 +1,20 @@
 class Mthr < Formula
   desc "Mount Thor customer CLI for registration, API keys, sessions, bare-metal machines, and VM workflows"
   homepage "https://mountthor.com"
-  version "0.3.40"
+  version "0.3.41"
   if OS.mac?
     if Hardware::CPU.arm?
-      url "https://get.mountthor.com/mthr/v0.3.40/mthr-aarch64-apple-darwin.tar.xz"
-      sha256 "e255a2260ce4beadbf4b5bd736f63fa79a7fcfd7ce1cd79f7e22b3bae35251f0"
+      url "https://get.mountthor.com/mthr/v0.3.41/mthr-aarch64-apple-darwin.tar.xz"
+      sha256 "64efb689fa6ec8b316006c631f805e98df86b3c9cca49591a42024bdeb386746"
     end
     if Hardware::CPU.intel?
-      url "https://get.mountthor.com/mthr/v0.3.40/mthr-x86_64-apple-darwin.tar.xz"
-      sha256 "109ea71b2c47c7938e7691fd0079e6242ccf575c2210789cab9dc206a74bb463"
+      url "https://get.mountthor.com/mthr/v0.3.41/mthr-x86_64-apple-darwin.tar.xz"
+      sha256 "34eecb6da958179eeade1e5260f44f46df60ee3e8660faf64c76973e105baeb9"
     end
   end
   if OS.linux? && Hardware::CPU.intel?
-    url "https://get.mountthor.com/mthr/v0.3.40/mthr-x86_64-unknown-linux-gnu.tar.xz"
-    sha256 "009268d0af6b9efb7e3085981cbd7276f7fc58c6ae6552971cf081ab60c1136c"
+    url "https://get.mountthor.com/mthr/v0.3.41/mthr-x86_64-unknown-linux-gnu.tar.xz"
+    sha256 "271dd16c5f045f097b382a0248286e16a2b102512a5b090b9bccb0e8009a7346"
   end
   license "Apache-2.0"
 
@@ -49,8 +49,11 @@ class Mthr < Formula
     APPLESCRIPT
 
     handler_app = libexec/"Mount Thor Desktop.app"
+    libexec.mkpath
     system "/usr/bin/osacompile", "-o", handler_app, handler_source
-    (handler_app/"Contents/Info.plist").write <<~PLIST
+    handler_info = handler_app/"Contents/Info.plist"
+    handler_info.unlink
+    handler_info.write <<~PLIST
       <?xml version="1.0" encoding="UTF-8"?>
       <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
       <plist version="1.0">
