@@ -1,0 +1,137 @@
+name: open-mthr-formula-pr
+
+# The private release repository can push a formula branch with its narrowly
+# scoped tap token, but that token intentionally cannot create pull requests.
+# This tap-owned workflow turns an exact, content-bound dispatch into a PR
+# authored by github-actions[bot], preserving independent human approval.
+
+"on":
+  repository_dispatch:
+    types: [mthr-formula-pr]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: mthr-formula-pr-${{ github.event.client_payload.version }}
+  cancel-in-progress: false
+
+jobs:
+  open-formula-pr:
+    name: open-formula-pr
+    if: ${{ github.event.sender.id == 278741532 }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: checkout-tap
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: validate-and-open
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.event.client_payload.version }}
+          BRANCH: ${{ github.event.client_payload.branch }}
+          HEAD_SHA: ${{ github.event.client_payload.head_sha }}
+          BASE_SHA: ${{ github.event.client_payload.base_sha }}
+          FORMULA_SHA256: ${{ github.event.client_payload.formula_sha256 }}
+          RELEASE_EVIDENCE: ${{ github.event.client_payload.release_evidence }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "version must be a stable semantic version." >&2
+            exit 1
+          fi
+          expected_branch="bot/mthr-${VERSION}-homebrew"
+          if [[ "${BRANCH}" != "${expected_branch}" ]]; then
+            echo "branch must be ${expected_branch}." >&2
+            exit 1
+          fi
+          for digest in "${HEAD_SHA}" "${BASE_SHA}" "${FORMULA_SHA256}"; do
+            if [[ ! "${digest}" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "dispatch digests must be lowercase SHA-256 values." >&2
+              exit 1
+            fi
+          done
+          if [[ ! "${RELEASE_EVIDENCE}" =~ ^https://github\.com/Mount-Thor/mount-thor/actions/runs/[0-9]+$ ]]; then
+            echo "release evidence must name an exact mount-thor Actions run." >&2
+            exit 1
+          fi
+
+          git fetch origin \
+            "+refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}" \
+            "+refs/heads/main:refs/remotes/origin/main"
+          test "$(git rev-parse "origin/${BRANCH}")" = "${HEAD_SHA}"
+          test "$(git rev-parse origin/main)" = "${BASE_SHA}"
+          test "$(git merge-base "origin/${BRANCH}" origin/main)" = "${BASE_SHA}"
+
+          mapfile -t changed_files < <(
+            git diff --name-only "${BASE_SHA}..${HEAD_SHA}"
+          )
+          if [[ ${#changed_files[@]} -ne 1 || "${changed_files[0]}" != "Formula/mthr.rb" ]]; then
+            echo "formula branch must change only Formula/mthr.rb." >&2
+            printf 'changed: %s\n' "${changed_files[@]}" >&2
+            exit 1
+          fi
+
+          candidate="$(mktemp)"
+          body_file="$(mktemp)"
+          trap 'rm -f "${candidate}" "${body_file}"' EXIT
+          git show "${HEAD_SHA}:Formula/mthr.rb" >"${candidate}"
+          test "$(shasum -a 256 "${candidate}" | awk '{print $1}')" = "${FORMULA_SHA256}"
+          grep -Fq "version \"${VERSION}\"" "${candidate}"
+          if grep -Fq "Mount-Thor/mount-thor/releases" "${candidate}"; then
+            echo "formula contains a private GitHub release URL." >&2
+            exit 1
+          fi
+          for target in \
+            mthr-aarch64-apple-darwin.tar.xz \
+            mthr-x86_64-apple-darwin.tar.xz \
+            mthr-x86_64-unknown-linux-gnu.tar.xz; do
+            grep -Fq \
+              "https://get.mountthor.com/mthr/v${VERSION}/${target}" \
+              "${candidate}"
+          done
+          ruby -c "${candidate}"
+
+          pr_number="$(
+            gh pr list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --head "${BRANCH}" \
+              --base main \
+              --state open \
+              --json number \
+              --jq '.[0].number // empty'
+          )"
+          if [[ -z "${pr_number}" ]]; then
+            printf '%s\n' \
+              "Publishes the Homebrew formula generated for immutable release \`mthr-v${VERSION}\`." \
+              "" \
+              "Release evidence: ${RELEASE_EVIDENCE}" \
+              "" \
+              "The tap repository validated the exact base commit, head commit, formula digest, one-file diff, public CDN URLs, and Ruby syntax before opening this bot-authored pull request." \
+              >"${body_file}"
+            pr_url="$(
+              gh pr create \
+                --repo "${GITHUB_REPOSITORY}" \
+                --base main \
+                --head "${BRANCH}" \
+                --title "mthr ${VERSION}" \
+                --body-file "${body_file}"
+            )"
+            pr_number="${pr_url##*/}"
+          fi
+
+          gh pr view "${pr_number}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --json author,baseRefOid,headRefOid |
+            jq -er \
+              --arg base "${BASE_SHA}" \
+              --arg head "${HEAD_SHA}" \
+              'select(.author.login == "app/github-actions" and .baseRefOid == $base and .headRefOid == $head) | .headRefOid' |
+            grep -Fxq "${HEAD_SHA}"
+          echo "Homebrew formula PR: https://github.com/${GITHUB_REPOSITORY}/pull/${pr_number}"
