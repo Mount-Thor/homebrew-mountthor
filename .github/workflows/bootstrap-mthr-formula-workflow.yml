@@ -1,0 +1,52 @@
+name: bootstrap-mthr-formula-workflow
+
+# One-shot branch-only bootstrap. This workflow never enters main: it creates
+# the reviewed PR containing only the durable dispatch workflow and README.
+
+"on":
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact bootstrap branch commit to publish
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  open-bootstrap-pr:
+    if: ${{ github.actor == 'mountthor-01' && github.sha == inputs.expected_sha }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: checkout-bootstrap-source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: open-bot-authored-pr
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ inputs.expected_sha }}"
+          source_sha="$(git rev-parse HEAD)"
+          git fetch origin main
+          git checkout -B bot/install-mthr-formula-dispatch origin/main
+          git checkout "${source_sha}" -- \
+            .github/workflows/open-mthr-formula-pr.yml \
+            README.md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/open-mthr-formula-pr.yml README.md
+          git commit -m "Automate reviewed mthr formula pull requests"
+          git push --force-with-lease origin \
+            HEAD:refs/heads/bot/install-mthr-formula-dispatch
+          gh pr create \
+            --base main \
+            --head bot/install-mthr-formula-dispatch \
+            --title "Automate reviewed mthr formula pull requests" \
+            --body "Adds the tap-owned, content-bound repository-dispatch path that opens mthr formula PRs as github-actions[bot]. The private release token retains branch push and dispatch access but does not gain pull-request write access."
