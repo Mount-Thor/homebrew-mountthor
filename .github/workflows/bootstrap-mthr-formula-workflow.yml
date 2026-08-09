@@ -2,6 +2,7 @@ name: bootstrap-mthr-formula-workflow
 
 # One-shot branch-only bootstrap. This workflow never enters main: it creates
 # the reviewed PR containing only the durable dispatch workflow and README.
+# A later validator correction uses the same bounded copy path.
 
 "on":
   pull_request:
