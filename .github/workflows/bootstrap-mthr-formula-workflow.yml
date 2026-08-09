@@ -5,8 +5,8 @@ name: bootstrap-mthr-formula-workflow
 # A later validator correction uses the same bounded copy path.
 
 "on":
-  pull_request:
-    types: [opened, synchronize]
+  push:
+    branches: [codex/mthr-formula-dispatch-bootstrap]
 
 permissions:
   contents: write
@@ -14,11 +14,7 @@ permissions:
 
 jobs:
   open-bootstrap-pr:
-    if: >-
-      github.actor == 'mountthor-01' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.head.ref == 'codex/mthr-formula-dispatch-bootstrap' &&
-      github.event.pull_request.base.ref == 'main'
+    if: ${{ github.actor == 'mountthor-01' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -26,7 +22,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.sha }}
 
       - name: open-bot-authored-pr
         shell: bash
@@ -34,7 +30,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
           source_sha="$(git rev-parse HEAD)"
           git fetch origin main
           git checkout -B bot/install-mthr-formula-dispatch origin/main
