@@ -1,24 +1,24 @@
 class Mthr < Formula
   desc "Mount Thor customer CLI for registration, API keys, sessions, bare-metal machines, and VM workflows"
   homepage "https://mountthor.com"
-  version "0.3.68"
+  version "0.3.69"
   if OS.mac?
     if Hardware::CPU.arm?
-      url "https://get.mountthor.com/mthr/v0.3.68/mthr-aarch64-apple-darwin.tar.xz"
-      sha256 "673108afebba76c7dd5a09ac631105d8014d0a0d14f0d83b7f7cc07f51487c62"
+      url "https://get.mountthor.com/mthr/v0.3.69/mthr-aarch64-apple-darwin.tar.xz"
+      sha256 "909c6fd4665aa7e5092188b4b6628a8bbdc00b6cdcdea4dec50c63e159b7abcb"
     end
     if Hardware::CPU.intel?
-      url "https://get.mountthor.com/mthr/v0.3.68/mthr-x86_64-apple-darwin.tar.xz"
-      sha256 "0a449dfd778ec6a3b97b138a14e55f6b4e50887b7c5852903d9de711ecd032a6"
+      url "https://get.mountthor.com/mthr/v0.3.69/mthr-x86_64-apple-darwin.tar.xz"
+      sha256 "68ae057b944a8c947a8ff72021b47221b4661e9e067b0adc86ed22cb1e4b708d"
     end
   end
   if OS.linux? && Hardware::CPU.intel?
-    url "https://get.mountthor.com/mthr/v0.3.68/mthr-x86_64-unknown-linux-gnu.tar.xz"
-    sha256 "e28499e90d4c452338935cf85e0bfe6f8bdf17dfae4f6bdf86b46253f03b52e6"
+    url "https://get.mountthor.com/mthr/v0.3.69/mthr-x86_64-unknown-linux-gnu.tar.xz"
+    sha256 "e340719cb7950d2c117da0472617acdc8d9ff94d0d5d17f896450f831cc3770c"
   end
   if OS.linux? && Hardware::CPU.arm?
-    url "https://get.mountthor.com/mthr/v0.3.68/mthr-aarch64-unknown-linux-gnu.tar.xz"
-    sha256 "cbc167b7febc78c9441fd8e4c5f9ae5dd32b838d95dd5dca92aae7d3ce8bfc85"
+    url "https://get.mountthor.com/mthr/v0.3.69/mthr-aarch64-unknown-linux-gnu.tar.xz"
+    sha256 "9df66957dd51e71626bc519d230c88708bc2da567c6acba45e7c18e2d4f9eb10"
   end
   license "Apache-2.0"
 
