@@ -54,8 +54,8 @@ jobs:
       # A pull request is allowed to be behind the newest published version --
       # its own merge is what catches the tap up -- so `--check-latest` is only
       # passed on the periodic run. Even there a lag is not automatically a
-      # fault: a formula pull request has to be reviewed and merged by a human,
-      # and the script gives that a grace period.
+      # fault: the release lane needs a few minutes to verify the formula and
+      # merge its own pull request, and the script gives that a grace period.
       - name: verify-pinned-digests
         id: verify
         shell: bash
@@ -63,9 +63,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
           # How long after publication a lagging tap with no open formula pull
-          # request is treated as stranded. Covers the minute between the
-          # release publishing and the lane opening the pull request.
-          LAG_FLOOR_HOURS: '2'
+          # request is treated as stranded. The release lane merges its own
+          # formula pull request within the run, so an hour later there should
+          # be nothing left to wait for: either the tap is current, or the
+          # merge failed. Kept below LAG_GRACE_HOURS so this check has a window
+          # to run in at all.
+          LAG_FLOOR_HOURS: '1'
         run: |
           set -uo pipefail
 
@@ -110,9 +113,12 @@ jobs:
           esac
 
           # A lag inside the grace period is normal *while a formula pull
-          # request is waiting to be merged*. If none is open, nothing is going
+          # request is still being merged*. If none is open, nothing is going
           # to catch the tap up, which is exactly how 0.3.65 stranded customers
-          # for 28 hours: its corrected pull request was closed unmerged.
+          # for 28 hours: its corrected pull request was closed unmerged. Now
+          # that the lane merges its own pull request, an open one this late is
+          # the signal that the merge step failed rather than that a reviewer
+          # is slow -- either way the tap is behind and someone has to look.
           if [ "${status}" = "ok" ] && [ "${tap_behind}" = "within_grace" ] &&
             [ -n "${lag_hours}" ] && [ "${lag_hours}" -ge "${LAG_FLOOR_HOURS}" ]; then
             if open_pr="$(gh pr list --repo "${GITHUB_REPOSITORY}" \
@@ -172,7 +178,7 @@ jobs:
             behind)
               title="The tap is behind the published release"
               lead="The digests in \`Formula/mthr.rb\` are correct, but the tap does not serve the newest published version, so \`brew install\` hands customers an older CLI than the one that was released."
-              cause="The formula pull request opened by the mthr-cli release lane was closed unmerged, was never opened, or is still waiting for a reviewer. Merging it catches the tap up."
+              cause="The mthr-cli release lane verifies the formula and merges its own pull request in the same run, so the tap should never sit behind for long. Either that merge step failed, no pull request was opened, or one was closed unmerged. Merging the formula pull request catches the tap up; check the release run for why it did not."
               ;;
             *)
               title="verify-formula could not check the tap"
