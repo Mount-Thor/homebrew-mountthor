@@ -1,0 +1,220 @@
+name: verify-formula
+
+# Nothing between a release and a customer's `brew install` reads the artifacts.
+#
+# `Formula/mthr.rb` is written by the mthr-cli Tekton release lane: its `tap`
+# task copies the generated formula into a `bot/mthr-<version>-homebrew` branch
+# and opens a pull request as the `mount-thor-mthr-cli-homebrew-tap` GitHub App
+# (mthr-cli `.tekton/mthr-cli-release.yaml`, `scripts/release/release_tap.sh`),
+# with no tap-side validation at all. The older `open-mthr-formula-pr` workflow
+# in this repository validated a formula's shape — commits, one-file diff,
+# formula digest, URL spelling, Ruby syntax — but it is fed by a
+# `repository_dispatch` the release lane no longer sends, and last ran on
+# 2026-09-09. Either way, neither path downloads what the formula points at.
+#
+# So a formula whose `sha256` values do not describe the published bytes passes
+# every check and then fails for every customer. This workflow downloads each
+# artifact and hashes it. It runs on every pull request, on main, and on a
+# schedule — the schedule is the part that matters, because published objects
+# can be replaced *after* a formula merges, which silently invalidates digests
+# that were correct when they landed. That is what happened to 0.3.65.
+
+"on":
+  # No `paths:` filter: the job takes seconds, and a check that reports on
+  # every pull request is one that can be made a required status check.
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '23 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-formula-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      status: ${{ steps.verify.outputs.status }}
+      detail: ${{ steps.verify.outputs.detail }}
+    steps:
+      - name: checkout-tap
+        uses: actions/checkout@v4
+
+      # A pull request is allowed to be behind the newest published version --
+      # its own merge is what catches the tap up -- so `--check-latest` is only
+      # passed on the periodic run. Even there a lag is not automatically a
+      # fault: a formula pull request has to be reviewed and merged by a human,
+      # and the script gives that a grace period.
+      - name: verify-pinned-digests
+        id: verify
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          # How long after publication a lagging tap with no open formula pull
+          # request is treated as stranded. Covers the minute between the
+          # release publishing and the lane opening the pull request.
+          LAG_FLOOR_HOURS: '2'
+        run: |
+          set -uo pipefail
+
+          VERIFY_STATUS_FILE="${RUNNER_TEMP}/verify-status"
+          export VERIFY_STATUS_FILE
+          : >"${VERIFY_STATUS_FILE}"
+
+          args=()
+          case "${EVENT_NAME}" in
+            schedule | workflow_dispatch) args+=(--check-latest) ;;
+          esac
+
+          rc=0
+          scripts/verify-formula.sh ${args[@]+"${args[@]}"} Formula/mthr.rb || rc=$?
+          echo "verify-formula.sh exited ${rc}"
+
+          status_get() { sed -n "s/^$1=//p" "${VERIFY_STATUS_FILE}" | tail -n 1; }
+          tap_behind="$(status_get tap_behind)"
+          lag_hours="$(status_get lag_hours)"
+          latest="$(status_get latest)"
+
+          detail=""
+          case "${rc}" in
+            0) status=ok ;;
+            1)
+              status=digest
+              detail="$(status_get digest_failures) pinned digest(s) do not match the served bytes"
+              ;;
+            3)
+              if [ "${tap_behind}" = "beyond_grace" ]; then
+                status=behind
+                detail="the tap still does not serve ${latest}, published ${lag_hours:-?}h ago"
+              else
+                status=broken
+                detail="the latest-release check could not complete (${tap_behind:-unknown})"
+              fi
+              ;;
+            *)
+              status=broken
+              detail="verify-formula.sh exited ${rc}"
+              ;;
+          esac
+
+          # A lag inside the grace period is normal *while a formula pull
+          # request is waiting to be merged*. If none is open, nothing is going
+          # to catch the tap up, which is exactly how 0.3.65 stranded customers
+          # for 28 hours: its corrected pull request was closed unmerged.
+          if [ "${status}" = "ok" ] && [ "${tap_behind}" = "within_grace" ] &&
+            [ -n "${lag_hours}" ] && [ "${lag_hours}" -ge "${LAG_FLOOR_HOURS}" ]; then
+            if open_pr="$(gh pr list --repo "${GITHUB_REPOSITORY}" \
+              --head "bot/mthr-${latest}-homebrew" --base main --state open \
+              --json number --jq '.[0].number // empty')"; then
+              if [ -z "${open_pr}" ]; then
+                status=behind
+                detail="${latest} was published ${lag_hours}h ago and no formula pull request is open for it"
+              else
+                echo "::notice::${latest} lags by ${lag_hours}h; formula pull request #${open_pr} is open"
+              fi
+            else
+              echo "::notice::could not list pull requests; not treating an in-grace lag as a fault"
+            fi
+          fi
+
+          {
+            echo "status=${status}"
+            echo "detail=${detail}"
+          } >>"${GITHUB_OUTPUT}"
+
+          if [ "${status}" != "ok" ]; then
+            echo "::error::${detail}"
+            exit 1
+          fi
+
+  report:
+    name: report
+    needs: verify
+    if: ${{ failure() && github.event_name == 'schedule' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: open-or-update-issue
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATUS: ${{ needs.verify.outputs.status }}
+          DETAIL: ${{ needs.verify.outputs.detail }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          # The two faults are separate alerts on purpose. A digest mismatch
+          # means installs are failing right now; a lagging tap means installs
+          # are stale. Filing them under one title trains people to skim past
+          # the one that matters.
+          case "${STATUS}" in
+            digest)
+              title="The published formula does not match the artifacts it pins"
+              lead="\`Formula/mthr.rb\` on \`main\` pins at least one \`sha256\` that does not match the bytes served at its \`url\`. While that is true, \`brew install Mount-Thor/mountthor/mthr\` fails the checksum for everyone."
+              cause="The usual cause is that a version's release objects were replaced after its formula merged. The fix is to land the regenerated formula produced by the replacement release run."
+              ;;
+            behind)
+              title="The tap is behind the published release"
+              lead="The digests in \`Formula/mthr.rb\` are correct, but the tap does not serve the newest published version, so \`brew install\` hands customers an older CLI than the one that was released."
+              cause="The formula pull request opened by the mthr-cli release lane was closed unmerged, was never opened, or is still waiting for a reviewer. Merging it catches the tap up."
+              ;;
+            *)
+              title="verify-formula could not check the tap"
+              lead="The \`verify-formula\` job did not reach a verdict, so the tap is currently unverified rather than known-good."
+              cause="Check the run log: the release manifest may be unreachable, or \`Formula/mthr.rb\` may be in a shape the script refuses to parse."
+              ;;
+          esac
+
+          body="$(printf '%s\n' \
+            "${lead}" \
+            "" \
+            "Detail: ${DETAIL}" \
+            "" \
+            "Verification run: ${RUN_URL}" \
+            "" \
+            "${cause}" \
+            "" \
+            "Reproduce locally with \`scripts/verify-formula.sh --check-latest\`." \
+          )"
+
+          existing="$(
+            gh issue list --repo "${GITHUB_REPOSITORY}" --state open \
+              --json number,title \
+              | jq -r --arg t "${title}" \
+                  '[.[] | select(.title == $t) | .number] | first // empty'
+          )"
+
+          if [ -z "${existing}" ]; then
+            gh issue create --repo "${GITHUB_REPOSITORY}" --title "${title}" --body "${body}"
+            exit 0
+          fi
+
+          # The check runs every six hours; a fault that persists for a week
+          # must not bury its own diagnosis under 28 identical comments.
+          last="$(
+            gh issue view "${existing}" --repo "${GITHUB_REPOSITORY}" \
+              --json createdAt,comments \
+              --jq '[.createdAt] + [.comments[].createdAt] | max'
+          )"
+          last_epoch="$(date -u -d "${last}" +%s 2>/dev/null || echo 0)"
+          if [ $(( $(date -u +%s) - last_epoch )) -lt 86400 ]; then
+            echo "::notice::issue #${existing} was updated within the last 24h; not commenting again"
+            exit 0
+          fi
+          gh issue comment "${existing}" --repo "${GITHUB_REPOSITORY}" --body "${body}"
