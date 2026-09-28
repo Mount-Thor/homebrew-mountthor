@@ -23,7 +23,9 @@ brew upgrade mthr
 
 `mthr` is the customer-facing CLI for [Mount Thor](https://mountthor.com), a neocloud for dedicated Apple silicon Mac fleets. The CLI handles registration, API keys, sessions, customer compute context rendering, bare-metal leases, and VM workflows.
 
-Source: <https://github.com/Mount-Thor/mount-thor/tree/main/operator-tools/mthr-cli>.
+CLI documentation: <https://docs.mountthor.com/quickstart#use-the-mthr-cli>.
+The CLI's source is not public, so this tap and the install channels above are
+the supported ways to get it.
 
 ## How this tap stays current
 
@@ -94,27 +96,79 @@ periodic run passes `--check-latest`, because a pull request is legitimately
 behind until it merges.
 
 A lagging tap is reported only once it is really stuck, not merely in flight.
-A newly published release is given `LAG_GRACE_HOURS` (36 by default, measured
-from the manifest's `generated_at`) to get its formula pull request merged;
-inside that window the workflow also checks whether that pull request is
-actually open, and treats the lag as a fault sooner if it is not. Each fault
-files its own issue — one titled for a digest mismatch, one for a tap that is
-behind — and while a fault persists the issue is commented on at most once a
-day.
+A newly published release is given `LAG_GRACE_HOURS` (36 by default) to get its
+formula pull request merged; inside that window the workflow also checks
+whether that pull request is actually open, and treats the lag as a fault
+sooner if it is not.
+
+That grace is measured from the newest version's own artifact `Last-Modified`,
+not from the manifest's top-level `generated_at`. `generated_at` is rewritten by
+*any* publish, so a break-glass replace of an older version would restart the
+clock for an unrelated release that is genuinely stranded. An artifact's
+`Last-Modified` moves only when that version's bytes are written, which is also
+exactly the event that obliges the tap to catch up again. If the header cannot
+be read the script falls back to `generated_at`, and records which clock it used
+as `lag_clock` in `VERIFY_STATUS_FILE`.
+
+Each fault files its own issue — one titled for a digest mismatch, one for a
+tap that is behind, one for a check that could not reach a verdict. While a
+fault persists its issue is commented on at most once a day, and the first
+`--check-latest` run that passes closes it again, so a red alert means a live
+fault rather than an old one nobody tidied up.
 
 Two things to know about the guard itself:
 
-- **It is advisory until someone makes it required.** `main` has no required
-  status checks, so a formula pull request can still be merged with `verify`
-  red. Making it required is a repository setting, not a file in this repo.
+- **`verify` is still advisory.** `main` has no required status checks, so a
+  formula pull request can be merged with `verify` red. Making it required is a
+  repository setting rather than a file in this repo — see "Making `verify`
+  required" below, which has the command and the one caveat worth knowing.
 - **GitHub disables scheduled workflows after 60 days without repository
   activity.** The tap is active today, but if releases pause for two months
   the six-hourly guard stops silently and has to be re-enabled from the
   Actions tab.
 
-The first formula pull request opened after this workflow lands should show a
-`verify` check. It is expected to: the release lane opens that pull request
-with a GitHub App installation token from outside GitHub Actions, and only
-pull requests created with a workflow's own `GITHUB_TOKEN` are barred from
-triggering further workflow runs. If the check is nonetheless absent, the
-verification has to move into the release lane itself.
+### Making `verify` required
+
+Requiring it is what turns this from a report into a gate: a formula whose
+digests do not describe the published bytes would stop being mergeable, instead
+of being caught up to six hours later by the periodic run. On a branch whose
+protection already requires no reviews, that is:
+
+```sh
+gh api -X PUT repos/Mount-Thor/homebrew-mountthor/branches/main/protection \
+  --input protection.json   # required_status_checks: {strict: false, checks: [{context: verify}]}
+```
+
+`strict: false` matters: with `strict: true` a bot branch cut from an older
+`main` would have to be updated before it could merge.
+
+The caveat is that a required check which never gets reported blocks the pull
+request. Formula pull requests are opened by the
+`mount-thor-mthr-cli-homebrew-tap` GitHub App with an installation token from
+Tekton rather than from GitHub Actions, and only pull requests created with a
+workflow's own `GITHUB_TOKEN` are barred from triggering further workflow runs
+— so `verify` is expected to run on them. That rests on GitHub's documented
+rule rather than on an observed run here: the four App-authored formula pull
+requests (#14–#17) predate this workflow, and the CodeQL runs on them come from
+Advanced Security's default setup rather than from a workflow file in this
+repository, so they do not settle the question.
+
+The exposure is small and bounded either way. If the check never appears,
+either of these unblocks the pull request in about a minute:
+
+- Run the workflow against its branch —
+  `gh workflow run verify-formula.yml --repo Mount-Thor/homebrew-mountthor --ref bot/mthr-<version>-homebrew`
+  — which reports `verify` on that branch's head commit and satisfies the
+  requirement.
+- Or drop the requirement again:
+  `gh api -X DELETE repos/Mount-Thor/homebrew-mountthor/branches/main/protection/required_status_checks`.
+
+And the worst case while it is being sorted out is a tap that lags a release —
+which the periodic run detects and files — rather than one that fails to
+install.
+
+If the check genuinely cannot run on those pull requests, the verification
+belongs in the release lane instead, which is arguably where it should live
+anyway: `mthr-cli` generates the formula by hashing archives it built locally,
+and nothing re-reads the objects that were actually stored before
+`scripts/release/release_tap.sh` opens the pull request here.

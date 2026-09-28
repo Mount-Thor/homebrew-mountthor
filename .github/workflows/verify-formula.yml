@@ -22,6 +22,9 @@ name: verify-formula
 "on":
   # No `paths:` filter: the job takes seconds, and a check that reports on
   # every pull request is one that can be made a required status check.
+  # `verify` is not required on `main` yet — README.md, "Making `verify`
+  # required", has the command, the one caveat, and the ways to unblock a
+  # formula pull request if the check ever fails to appear on one.
   pull_request:
   push:
     branches: [main]
@@ -35,6 +38,18 @@ permissions:
 concurrency:
   group: verify-formula-${{ github.ref }}
   cancel-in-progress: false
+
+# The two faults are separate alerts on purpose. A digest mismatch means
+# installs are failing right now; a lagging tap means installs are stale.
+# Filing them under one title trains people to skim past the one that matters.
+#
+# `report` files these and `resolve` closes them, so they are defined once here
+# rather than in each job: a title that drifted between the two would leave an
+# issue that can be opened but never closed.
+env:
+  TITLE_DIGEST: The published formula does not match the artifacts it pins
+  TITLE_BEHIND: The tap is behind the published release
+  TITLE_BROKEN: verify-formula could not check the tap
 
 jobs:
   verify:
@@ -159,23 +174,21 @@ jobs:
         run: |
           set -euo pipefail
 
-          # The two faults are separate alerts on purpose. A digest mismatch
-          # means installs are failing right now; a lagging tap means installs
-          # are stale. Filing them under one title trains people to skim past
-          # the one that matters.
+          # Titles come from the workflow-level `env` so that `resolve` closes
+          # exactly the issues this step opens.
           case "${STATUS}" in
             digest)
-              title="The published formula does not match the artifacts it pins"
+              title="${TITLE_DIGEST}"
               lead="\`Formula/mthr.rb\` on \`main\` pins at least one \`sha256\` that does not match the bytes served at its \`url\`. While that is true, \`brew install Mount-Thor/mountthor/mthr\` fails the checksum for everyone."
               cause="The usual cause is that a version's release objects were replaced after its formula merged. The fix is to land the regenerated formula produced by the replacement release run."
               ;;
             behind)
-              title="The tap is behind the published release"
+              title="${TITLE_BEHIND}"
               lead="The digests in \`Formula/mthr.rb\` are correct, but the tap does not serve the newest published version, so \`brew install\` hands customers an older CLI than the one that was released."
               cause="The formula pull request opened by the mthr-cli release lane was closed unmerged, was never opened, or is still waiting for a reviewer. Merging it catches the tap up."
               ;;
             *)
-              title="verify-formula could not check the tap"
+              title="${TITLE_BROKEN}"
               lead="The \`verify-formula\` job did not reach a verdict, so the tap is currently unverified rather than known-good."
               cause="Check the run log: the release manifest may be unreachable, or \`Formula/mthr.rb\` may be in a shape the script refuses to parse."
               ;;
@@ -218,3 +231,48 @@ jobs:
             exit 0
           fi
           gh issue comment "${existing}" --repo "${GITHUB_REPOSITORY}" --body "${body}"
+
+  # A fault that clears on its own — a replaced object re-uploaded correctly, a
+  # formula pull request finally merged — otherwise leaves its issue open until
+  # somebody notices. An alert that stays red after the problem is gone is an
+  # alert people learn to ignore, so the same runs that can open these issues
+  # close them again.
+  #
+  # Only the runs that pass `--check-latest` qualify: a green `push`/
+  # `pull_request` run has not checked whether the tap is behind, so it is not
+  # evidence that a "behind" issue is resolved.
+  resolve:
+    name: resolve
+    needs: verify
+    if: ${{ success() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: close-resolved-issues
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          open_issues="$(
+            gh issue list --repo "${GITHUB_REPOSITORY}" --state open \
+              --json number,title
+          )"
+
+          for title in "${TITLE_DIGEST}" "${TITLE_BEHIND}" "${TITLE_BROKEN}"; do
+            numbers="$(
+              jq -r --arg t "${title}" \
+                '.[] | select(.title == $t) | .number' <<<"${open_issues}"
+            )"
+            for number in ${numbers}; do
+              echo "closing #${number}: ${title}"
+              gh issue close "${number}" --repo "${GITHUB_REPOSITORY}" \
+                --reason completed \
+                --comment "\`verify-formula\` passed with \`--check-latest\`: every pinned digest matches the bytes being served, and the tap serves the newest published version. Closing this automatically. Verification run: ${RUN_URL}"
+            done
+          done
