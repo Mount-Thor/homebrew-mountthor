@@ -53,9 +53,12 @@ The older
 `.github/workflows/open-mthr-formula-pr.yml` did validate a proposed formula's
 *shape* — the exact commits, the one-file diff, the formula's own digest, the
 CDN URL spelling and Ruby syntax — but it is driven by a `repository_dispatch`
-the release lane no longer sends, and it last ran on 2026-09-09. Neither path
-has ever downloaded the artifacts a formula pins, which is what "Verifying the
-tap" below exists to do.
+the release lane no longer sends, and it last ran on 2026-09-09. It is kept
+rather than deleted because the operator script that sends that dispatch
+(`operator-tools/mthr-cli/scripts/homebrew-formula-pr.sh` in
+`Mount-Thor/mount-thor`) still exists; its own header comment records what it
+does and does not gate. Neither path has ever downloaded the artifacts a
+formula pins, which is what "Verifying the tap" below exists to do.
 
 `mthr` is the only supported Homebrew formula. Do not add a legacy full-name
 formula or alias; it conflicts with the canonical `mthr` binary.

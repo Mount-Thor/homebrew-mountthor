@@ -1,9 +1,29 @@
 name: open-mthr-formula-pr
 
-# The private release repository can push a formula branch with its narrowly
-# scoped tap token, but that token intentionally cannot create pull requests.
-# This tap-owned workflow turns an exact, content-bound dispatch into a PR
-# authored by github-actions[bot], preserving independent human approval.
+# A legacy path, kept because the dispatcher that drives it still exists:
+# Mount-Thor/mount-thor `operator-tools/mthr-cli/scripts/homebrew-formula-pr.sh`
+# pushes a formula branch here and sends the `mthr-formula-pr` dispatch this
+# workflow answers. What it contributes is validation of a *proposed* formula's
+# shape — the exact commits, the one-file diff, the formula's own digest, the
+# CDN URL spelling and Ruby syntax — before it authors a pull request for it.
+#
+# It is not how a release reaches this tap today, and it is not a human gate.
+# Two claims that stood in this comment were false by the time they mattered:
+#
+#   - The release App does create pull requests. `mount-thor-mthr-cli-homebrew-tap`
+#     authored #14 through #17 itself. The mthr-cli Tekton lane pushes the
+#     branch, opens the pull request and merges it in the same run — see "How
+#     this tap stays current" in README.md.
+#   - No independent human approval is preserved by opening a PR here. The gate
+#     is the reviewed release note or replacement request upstream of the lane;
+#     the `sender.id` below is a single user account rather than the release
+#     App, and nothing in this workflow reviews what a formula says.
+#
+# The release lane no longer sends the dispatch: this workflow has run three
+# times, the last on 2026-09-09, and the `release_evidence` it requires is a
+# Mount-Thor/mount-thor Actions run URL, which a Tekton lane cannot produce.
+# Neither path has ever downloaded the artifacts a formula pins — that is what
+# `verify-formula.yml` exists to do.
 
 "on":
   repository_dispatch:
