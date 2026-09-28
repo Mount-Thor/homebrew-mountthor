@@ -32,27 +32,44 @@ it.
 
 On a release, the Tekton pipeline in `Mount-Thor/mthr-cli`
 (`.tekton/mthr-cli-release.yaml`, task `tap`) runs
-`scripts/release/release_tap.sh`: it copies the generated formula onto a
-`bot/mthr-<version>-homebrew` branch, pushes it, and opens a pull request here
-as the `mount-thor-mthr-cli-homebrew-tap` GitHub App. A human reviews and
-merges that pull request; nothing merges it automatically.
+`scripts/release/release_tap.sh`: it fetches every artifact the generated
+formula pins and re-hashes it against the `sha256` beside it, copies the
+formula onto a `bot/mthr-<version>-homebrew` branch, pushes it, opens a pull
+request here as the `mount-thor-mthr-cli-homebrew-tap` GitHub App, and **merges
+that pull request in the same run**, then re-reads `main` to confirm it serves
+the formula it verified.
 
-That lane runs no tap-side validation. The older
+The human gate sits upstream of all that, at the reviewed release note or
+replacement request that starts the release — not at this pull request. A tap
+that lags the release it belongs to is not a safety property; between
+2026-09-25 and 2026-09-27 four formula pull requests went unmerged and
+`brew install` failed the checksum for about 28 hours.
+
+The lane waits up to 15 minutes for GitHub itself to accept the merge, so
+branch protection — including a required `verify` check — is what decides when
+the merge happens, and a check that is not required never blocks it.
+
+The older
 `.github/workflows/open-mthr-formula-pr.yml` did validate a proposed formula's
 *shape* — the exact commits, the one-file diff, the formula's own digest, the
 CDN URL spelling and Ruby syntax — but it is driven by a `repository_dispatch`
-the release lane no longer sends, and it last ran on 2026-09-09. Neither path
-has ever downloaded the artifacts a formula pins, which is what "Verifying the
-tap" below exists to do.
+the release lane no longer sends, and it last ran on 2026-09-09. It is kept
+rather than deleted because the operator script that sends that dispatch
+(`operator-tools/mthr-cli/scripts/homebrew-formula-pr.sh` in
+`Mount-Thor/mount-thor`) still exists; its own header comment records what it
+does and does not gate. Neither path has ever downloaded the artifacts a
+formula pins, which is what "Verifying the tap" below exists to do.
 
 `mthr` is the only supported Homebrew formula. Do not add a legacy full-name
 formula or alias; it conflicts with the canonical `mthr` binary.
 
 A formula pull request is the only way the tap catches up with a release.
-Closing one without merging a replacement leaves customers on the previous
-formula — which is a problem when that release's artifacts were republished,
-because the digests the old formula pins no longer describe the files being
-served. That is how `brew install` failed for about 28 hours across 0.3.65.
+Closing one unmerged, or having the lane's merge step fail, leaves customers on
+the previous formula — which is a problem when that release's artifacts were
+republished, because the digests the old formula pins no longer describe the
+files being served. That is how `brew install` failed for about 28 hours across
+0.3.65. A formula pull request still sitting open an hour after its release
+published is the signal that the lane's merge did not happen.
 
 ## Verifying the tap
 
@@ -94,19 +111,28 @@ periodic run passes `--check-latest`, because a pull request is legitimately
 behind until it merges.
 
 A lagging tap is reported only once it is really stuck, not merely in flight.
-A newly published release is given `LAG_GRACE_HOURS` (36 by default, measured
-from the manifest's `generated_at`) to get its formula pull request merged;
-inside that window the workflow also checks whether that pull request is
-actually open, and treats the lag as a fault sooner if it is not. Each fault
-files its own issue — one titled for a digest mismatch, one for a tap that is
-behind — and while a fault persists the issue is commented on at most once a
-day.
+A newly published release is given `LAG_GRACE_HOURS` (2 by default, measured
+from the manifest's `generated_at`) for the release lane to verify and merge its
+formula pull request; inside that window the workflow also checks whether that
+pull request is still open after an hour, and treats the lag as a fault sooner
+if nothing is open to catch the tap up. Each fault files its own issue — one
+titled for a digest mismatch, one for a tap that is behind — and while a fault
+persists the issue is commented on at most once a day.
 
 Two things to know about the guard itself:
 
 - **It is advisory until someone makes it required.** `main` has no required
   status checks, so a formula pull request can still be merged with `verify`
-  red. Making it required is a repository setting, not a file in this repo.
+  red. Making it required is a repository setting, not a file in this repo:
+
+  ```sh
+  gh api -X PATCH repos/Mount-Thor/homebrew-mountthor/branches/main/protection/required_status_checks \
+    -f 'checks[][context]=verify'
+  ```
+
+  That is safe to do once the release lane's merge step waits for GitHub to
+  accept the merge (`scripts/release/release_tap.sh`, mthr-cli #366). Requiring
+  it before that lands would make the lane's merge race this workflow's run.
 - **GitHub disables scheduled workflows after 60 days without repository
   activity.** The tap is active today, but if releases pause for two months
   the six-hourly guard stops silently and has to be re-enabled from the

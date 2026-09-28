@@ -21,10 +21,13 @@ set -euo pipefail
 MANIFEST_URL="${MANIFEST_URL:-https://get.mountthor.com/manifest.json}"
 
 # How long the tap may legitimately lag a freshly published release before that
-# lag is a fault. A formula pull request has to be opened, reviewed and merged
-# by a human; observed waits run from two minutes to just under a day, so the
-# default sits well clear of a normal merge.
-LAG_GRACE_HOURS="${LAG_GRACE_HOURS:-36}"
+# lag is a fault. The mthr-cli release lane verifies the formula against the CDN
+# and then merges its own pull request within the same run
+# (`scripts/release/release_tap.sh`), waiting up to 15 minutes for GitHub to
+# accept the merge. So a couple of hours covers a normal release comfortably,
+# and a tap still behind after that means the lane's merge did not happen —
+# which is the fault worth reporting, not a reviewer who has yet to look.
+LAG_GRACE_HOURS="${LAG_GRACE_HOURS:-2}"
 
 # Optional key=value sink so CI can act on *why* this failed without parsing
 # the human-readable report above it.
@@ -45,13 +48,13 @@ Usage:
   FORMULA         Path to the formula (default: Formula/mthr.rb).
   --check-latest  Also require the formula's version to equal the `latest`
                   version in the release manifest, once that release is older
-                  than LAG_GRACE_HOURS (default 36). Use this on a schedule,
+                  than LAG_GRACE_HOURS (default 2). Use this on a schedule,
                   not on a pull request: between cutting a release and merging
                   its formula pull request the tap is legitimately behind.
 
 Environment:
   MANIFEST_URL         Release manifest (default https://get.mountthor.com/manifest.json)
-  LAG_GRACE_HOURS      Grace before a lagging tap is a fault (default 36)
+  LAG_GRACE_HOURS      Grace before a lagging tap is a fault (default 2)
   VERIFY_STATUS_FILE   If set, key=value results are appended here for CI
 
 Exit codes:
@@ -128,6 +131,10 @@ trap 'rm -rf "${workdir}"' EXIT
 # Pair each `url` with the `sha256` that follows it. The generated formula
 # always writes them adjacently, one pair per platform branch; anything else is
 # a formula we do not understand and must not silently skip over.
+#
+# Both patterns are anchored to the start of the whitespace-trimmed line, so a
+# commented-out stanza or a `url "` inside a string literal is neither verified
+# as a pinned artifact nor treated as an unpairable formula.
 pairs="${workdir}/pairs"
 : >"${pairs}"
 pending_url=""
@@ -135,18 +142,19 @@ pending_line=0
 line_number=0
 while IFS= read -r line || [ -n "${line}" ]; do
   line_number=$((line_number + 1))
-  case "${line}" in
-    *url\ \"*\"*)
+  trimmed="${line#"${line%%[![:space:]]*}"}"
+  case "${trimmed}" in
+    url\ \"*\"*)
       if [ -n "${pending_url}" ]; then
         echo "${formula}:${pending_line}: url has no sha256 before the next url" >&2
         exit "${EXIT_USAGE}"
       fi
-      pending_url="${line#*url \"}"
+      pending_url="${trimmed#url \"}"
       pending_url="${pending_url%%\"*}"
       pending_line="${line_number}"
       ;;
-    *sha256\ \"*\"*)
-      digest="${line#*sha256 \"}"
+    sha256\ \"*\"*)
+      digest="${trimmed#sha256 \"}"
       digest="${digest%%\"*}"
       if [ -z "${pending_url}" ]; then
         echo "${formula}:${line_number}: sha256 with no preceding url" >&2
@@ -243,8 +251,9 @@ if [ "${check_latest}" -eq 1 ]; then
         emit "tap_behind=beyond_grace"
       elif [ "${lag_hours}" -ge "${LAG_GRACE_HOURS}" ]; then
         echo "FAIL  tap serves ${formula_version}, but ${latest} has been published"
-        echo "      for ${lag_hours}h (grace ${LAG_GRACE_HOURS}h) — its formula pull"
-        echo "      request was closed, never opened, or is being left to sit."
+        echo "      for ${lag_hours}h (grace ${LAG_GRACE_HOURS}h) — the release lane"
+        echo "      never opened its formula pull request, failed to merge it, or"
+        echo "      it was closed unmerged."
         behind=1
         emit "tap_behind=beyond_grace"
       else
